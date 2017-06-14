@@ -789,10 +789,10 @@ do j=1,nlines
 enddo
 do i=1,nmarq
  do j=1,nlines
- if(i>2 .and.coding==1 .and. j<nlines)write(101,'(i2)',advance='no')table2i(i,j)
- if(i>2 .and.coding==1 .and. j==nlines)write(101,'(i2)',advance='yes')table2i(i,j)
- if(i>2 .and.coding==2 .and. j<nlines)write(101,'(1x,f8.5)',advance='no')table2r(i,j)
- if(i>2 .and.coding==2 .and. j==nlines)write(101,'(1x,f8.5)',advance='yes')table2r(i,j)
+ if(coding==1 .and. j<nlines)write(101,'(i2)',advance='no')table2i(i,j)
+ if(coding==1 .and. j==nlines)write(101,'(i2)',advance='yes')table2i(i,j)
+ if(coding==2 .and. j<nlines)write(101,'(1x,f8.5)',advance='no')table2r(i,j)
+ if(coding==2 .and. j==nlines)write(101,'(1x,f8.5)',advance='yes')table2r(i,j)
  enddo
 enddo
 
