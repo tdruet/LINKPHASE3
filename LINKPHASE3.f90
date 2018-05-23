@@ -134,6 +134,13 @@ enddo
 print*,'Number of markers ::',nmarq
 rewind(50)
 
+if(nmarq>=10000000)then
+ print*,'Maxid ID larger than 10,000,000!'
+ print*,'The output format must be update.'
+ print*,'The program will now stop.'
+ stop
+endif
+
 allocate(posi(nmarq))
 posi=0.0
 
@@ -172,6 +179,13 @@ if(io/=0)exit
 enddo
 
 print*,'Maximum number of animal red in pedigree file ::',maxid
+
+if(maxid>=10000000)then
+ print*,'Maxid ID larger than 10,000,000!'
+ print*,'The output format must be update.'
+ print*,'The program will now stop.'
+ stop
+endif
 
 rewind(9)
 
@@ -707,7 +721,7 @@ if(reading==0)then
   if(.not.genotyped(i) .and. .not.haplotyped(i))cycle
   do j=1,2
 !  write(101,'(i6,i2,1x,<nmarq>i2)')oldid(i),j,(hap(i,j,k),k=1,nmarq)
-    write(101,'(i6,i2,1x)',advance='no')oldid(i),j
+    write(101,'(i7,i2,1x)',advance='no')oldid(i),j
     do k=1,nmarq
       if(k<nmarq)write(101,'(i2)',advance='no')hap(i,j,k)
       if(k==nmarq)write(101,'(i2)',advance='yes')hap(i,j,k)
@@ -718,7 +732,7 @@ if(reading==0)then
 else if(reading==1)then
  do i=1,nani
   if(.not.genotyped(i) .and. .not.haplotyped(i))cycle
-  write(101,'(2i6)',advance='no')oldid(i),oldid(i)
+  write(101,'(i7,1x,i7)',advance='no')oldid(i),oldid(i)
  enddo
  write(101,*)
  do i=1,nani
@@ -780,12 +794,12 @@ close(101)
 
 open(101,file=hfilename)
 do j=1,nlines
- if(j<nlines)write(101,'(1x,i6)',advance='no')table1(1,j)
- if(j==nlines)write(101,'(1x,i6)',advance='yes')table1(1,j)
+ if(j<nlines)write(101,'(i7,1x)',advance='no')table1(1,j)
+ if(j==nlines)write(101,'(i7)',advance='yes')table1(1,j)
 enddo
 do j=1,nlines
- if(j<nlines)write(101,'(1x,i6)',advance='no')table1(2,j)
- if(j==nlines)write(101,'(1x,i6)',advance='yes')table1(2,j)
+ if(j<nlines)write(101,'(i7,1x)',advance='no')table1(2,j)
+ if(j==nlines)write(101,'(i7)',advance='yes')table1(2,j)
 enddo
 do i=1,nmarq
  do j=1,nlines
@@ -1149,7 +1163,7 @@ do k=1,nmarq
      endif
      if(p_error>0.95)then
       if(typ(byparent(firsto+l-1,2),2*k)/=0 .and. typ(byparent(firsto+l-1,2),2*k)==typ(byparent(firsto+l-1,2),2*k-1))then ! prephasing and genotyping errors
-       write(102,'(i6,1x,i6,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(byparent(firsto+l-1,2)),k,step,'progeny',&
+       write(102,'(i7,1x,i7,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(byparent(firsto+l-1,2)),k,step,'progeny',&
           typ(byparent(firsto+l-1,2),2*k),typ(byparent(firsto+l-1,2),2*k-1),p_error,L11(k),L12(k),L21(k),L22(k),noffspring 
        typ(byparent(firsto+l-1,2),2*k-1)=0
        typ(byparent(firsto+l-1,2),2*k)=0
@@ -1207,7 +1221,7 @@ integer ::printout,ninfor
     endif
     if(p_error>0.95)then
        if(typ(byparent(firsto+l-1,2),2*k)/=0 .and. typ(byparent(firsto+l-1,2),2*k)==typ(byparent(firsto+l-1,2),2*k-1))then ! prephasing and genotyping errors
-        write(102,'(i6,1x,i6,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(byparent(firsto+l-1,2)),k,step,'progeny',&
+        write(102,'(i7,1x,i7,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(byparent(firsto+l-1,2)),k,step,'progeny',&
           typ(byparent(firsto+l-1,2),2*k),typ(byparent(firsto+l-1,2),2*k-1),p_error,L11(k),L12(k),L21(k),L22(k),noffspring
         typ(byparent(firsto+l-1,2),2*k-1)=0
         typ(byparent(firsto+l-1,2),2*k)=0
@@ -1240,7 +1254,7 @@ integer ::printout,ninfor
    endif
 
    lastknown=0;lastori=0;ninfor=0
-   write(200,'(i6,1x,i6)',advance='no')oldid(byparent(firsto+l-1,2)),oldid(oldparent)
+   write(200,'(i7,1x,i7)',advance='no')oldid(byparent(firsto+l-1,2)),oldid(oldparent)
    norigins2=norigins2+1
    do k=1,nmarq
      if(k<nmarq)write(200,'(1x,f7.4)',advance='no')gammas(l,k)
@@ -1248,7 +1262,7 @@ integer ::printout,ninfor
      if(gammas(l,k)>0.999 .and. (L12(k)>0.95 .or. L21(k)>0.95) .and. hap(byparent(firsto+l-1,2),parsex,k)/=0)then
       if(lastknown/=0)then
        if(lastori==2)then
-         write(201,'(4(1x,i6))')oldid(byparent(firsto+l-1,2)),oldid(oldparent),lastknown,k
+         write(201,'(4(1x,i7))')oldid(byparent(firsto+l-1,2)),oldid(oldparent),lastknown,k
          nrec(l)=nrec(l)+1
        endif
       endif
@@ -1258,7 +1272,7 @@ integer ::printout,ninfor
      if(gammas(l,k)<0.001 .and. (L12(k)>0.95 .or. L21(k)>0.95) .and. hap(byparent(firsto+l-1,2),parsex,k)/=0)then
       if(lastknown/=0)then
        if(lastori==1)then
-         write(201,'(4(1x,i6))')oldid(byparent(firsto+l-1,2)),oldid(oldparent),lastknown,k
+         write(201,'(4(1x,i7))')oldid(byparent(firsto+l-1,2)),oldid(oldparent),lastknown,k
          nrec(l)=nrec(l)+1
        endif
       endif
@@ -1268,7 +1282,7 @@ integer ::printout,ninfor
    enddo
    k=0
    if(prephased)k=1
-   if(prephased .or. noffspring>2)write(202,'(2(i6,1x),i1,1x,i4,2(1x,i1),3(1x,i6),1x,i4)')&
+   if(prephased .or. noffspring>2)write(202,'(2(i7,1x),i1,1x,i4,2(1x,i1),3(1x,i7),1x,i4)')&
       oldid(byparent(firsto+l-1,2)),oldid(oldparent),parsex,noffspring,k,mate,nheter,nhomoz,ninfor,nrec(l)
  enddo
  endif
@@ -1296,15 +1310,15 @@ integer ::printout,ninfor
  if(L22(k)>0.95)hap(oldparent,1,k)=2
  if(L22(k)>0.95)hap(oldparent,2,k)=2
  if((typ(oldparent,2*k-1)+typ(oldparent,2*k))==2 .and. (1.d0-L11(k))>0.95)&
-      write(102,'(i6,1x,i6,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(oldparent),k,step,'parents',typ(oldparent,2*k-1),&
+      write(102,'(i7,1x,i7,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(oldparent),k,step,'parents',typ(oldparent,2*k-1),&
       typ(oldparent,2*k),(1.d0-L11(k)),L11(k),L12(k),L21(k),L22(k),noffspring
  if((typ(oldparent,2*k-1)+typ(oldparent,2*k))==2 .and. (1.d0-L11(k))>0.95)typ(oldparent,(2*k-1):(2*k))=0
  if((typ(oldparent,2*k-1)+typ(oldparent,2*k))==3 .and. (1.d0-L12(k)-L21(k))>0.95)&
-   write(102,'(i6,1x,i6,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(oldparent),k,step,'parents',typ(oldparent,2*k-1),&
+   write(102,'(i7,1x,i7,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(oldparent),k,step,'parents',typ(oldparent,2*k-1),&
     typ(oldparent,2*k),(1.d0-L12(k)-L21(k)),L11(k),L12(k),L21(k),L22(k),noffspring
  if((typ(oldparent,2*k-1)+typ(oldparent,2*k))==3 .and. (1.d0-L12(k)-L21(k))>0.95)typ(oldparent,(2*k-1):(2*k))=0
  if((typ(oldparent,2*k-1)+typ(oldparent,2*k))==4 .and. (1.d0-L22(k))>0.95)&
-    write(102,'(i6,1x,i6,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(oldparent),k,step,'parents',typ(oldparent,2*k-1),&
+    write(102,'(i7,1x,i7,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(oldparent),k,step,'parents',typ(oldparent,2*k-1),&
     typ(oldparent,2*k),(1.d0-L22(k)),L11(k),L12(k),L21(k),L22(k),noffspring
  if((typ(oldparent,2*k-1)+typ(oldparent,2*k))==4 .and. (1.d0-L22(k))>0.95)typ(oldparent,(2*k-1):(2*k))=0
 
@@ -1329,7 +1343,7 @@ integer ::printout,ninfor
 
  if(printout==2)then
  ori=1
- write(203,'(i6,1x,i1)',advance='no')oldid(oldparent),ori
+ write(203,'(i7,1x,i1)',advance='no')oldid(oldparent),ori
  nemission=nemission+1
  do k=1,nmarq
   if(k<nmarq)write(203,'(1x,f8.5)',advance='no')bjk(k,1,1)
@@ -1337,7 +1351,7 @@ integer ::printout,ninfor
  enddo
 
  ori=2
- write(203,'(i6,1x,i1)',advance='no')oldid(oldparent),ori
+ write(203,'(i7,1x,i1)',advance='no')oldid(oldparent),ori
  nemission=nemission+1
  do k=1,nmarq
   if(k<nmarq)write(203,'(1x,f8.5)',advance='no')bjk(k,2,1)
@@ -1510,10 +1524,10 @@ do k=1,nmark
  if(k<nmarq)posi2=posi(k+1)
  if(k==nmarq)posi2=posi(k)+1.00
  if(gender==0)then
-  write(513,'(i6,2(1x,f11.6),1x,f16.13,2(1x,f8.1,1x,f8.5),1x,f8.5)')k,posi1,posi2,postrec(k), &
+  write(513,'(i7,2(1x,f11.6),1x,f16.13,2(1x,f8.1,1x,f8.5),1x,f8.5)')k,posi1,posi2,postrec(k), &
     npar(k),par_error(k),nentropy(k),entropy(k),composite
  else
-  write(513,'(i6,2(1x,f11.6),1x,f16.13)')k,posi1,posi2,postrec(k)
+  write(513,'(i7,2(1x,f11.6),1x,f16.13)')k,posi1,posi2,postrec(k)
  endif
 enddo
 
@@ -1710,7 +1724,7 @@ integer ::ninfor
    ngam(0)=ngam(0)+1.00;ngam(parsex)=ngam(parsex)+1.00
    ninfor=0
    lastknown=0;lastori=0;nrec=0
-   write(300,'(i6,1x,i6)',advance='no')oldid(byparent(firsto+l-1,2)),oldid(oldparent)
+   write(300,'(i7,1x,i7)',advance='no')oldid(byparent(firsto+l-1,2)),oldid(oldparent)
    norigins1=norigins1+1
    do k=1,nmarq
      ori1=0
@@ -1724,7 +1738,7 @@ integer ::ninfor
      if(ori1/=0)then
       if(lastknown/=0)then
        if(ori1/=lastori)then
-         write(301,'(4(1x,i6))')oldid(byparent(firsto+l-1,2)),oldid(oldparent),lastknown,k
+         write(301,'(4(1x,i7))')oldid(byparent(firsto+l-1,2)),oldid(oldparent),lastknown,k
          nrec(l)=nrec(l)+1
          nprinted=nprinted+1
        endif
@@ -1734,7 +1748,7 @@ integer ::ninfor
    enddo
    k=0
    if(prephased)k=1
-   write(302,'(2(i6,1x),i1,1x,i4,2(1x,i1),3(1x,i6),1x,i4)')&
+   write(302,'(2(i7,1x),i1,1x,i4,2(1x,i1),3(1x,i7),1x,i4)')&
      oldid(byparent(firsto+l-1,2)),oldid(oldparent),parsex,noffspring,k,mate,nheter,nhomoz,ninfor,nrec(l)
  enddo
 
