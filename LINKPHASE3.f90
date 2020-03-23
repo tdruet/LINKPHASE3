@@ -1,6 +1,6 @@
 ! PROGRAM : LINKPHASE3
 ! Author  : Tom DRUET
-! Copyright (C) 2014
+! Copyright (C) 2014-2020
 
 !This program is free software: you can redistribute it and/or modify
 !it under the terms of the GNU General Public License as published by
@@ -17,36 +17,39 @@
 
 program linkphase3
 implicit none
-! version 16/01/2015
+! version 23/02/2020
 
 
 integer ::parent1,parent2,nmarq,nhap,i,j,k,l,pos(2),round,ori,num,useold,verif,maxinfo,maxk
-integer ::all1,all2,sall1,sall2,dall1,dall2,pall1,pall2,io,maxid,n1,n2,ntemplates
+integer ::all1,all2,sall1,sall2,dall1,dall2,pall1,pall2,io,maxid,n1,n2,ntemplates,autosome,parstart,parend,sex
 integer*1, allocatable ::hap(:,:,:),typ(:,:),hapin(:),prephaseinfo(:,:)
 real*8 ::val,pmax,lik,lik2,bestlik,conv
 integer ::nround,ani,nani,k1,k2,print_val,freqprint,pere,mere,add1,add2,parent,round2,nround2,nseed,nroundextra,seed,map_option
-integer, allocatable ::sire(:),dam(:),newid(:),oldid(:),byparent(:,:)
-real*8 ::position,ph1,ph2,epsi
-real*8,allocatable ::posi(:)
+integer, allocatable ::sire(:),dam(:),sexes(:),newid(:),oldid(:),byparent(:,:)
+real*8 ::position,position2,ph1,ph2,epsi,gerr
+real*8,allocatable ::posi(:,:)
 logical*1, allocatable ::genotyped(:),haplotyped(:)
 character*80 ::genofile,pedfile,oldfile,markfile,step
 character*1000000 ::genoline1
 integer ::ori0,ori1,ori2,mk1,mk2,n_switched,n_erased,n_phased
 real*8, allocatable ::alpha(:,:),scaling(:),bjk(:,:,:),beta(:,:),gamma(:,:),L11(:),L21(:),L12(:),L22(:)
 real*8 ::pjump(0:1),pi,prob_emission
-
-integer ::noffspring,firsto,lasto,oldparent,mc1,parsex,offspring,p12,p11,neighbour,r12,r11,firstm,lastm,c1,c2
+real*8, allocatable ::emap(:,:),probrecs(:,:),numrecs(:,:)
+real*8 ::edenom1,edenom2,econv1,econv2,totlik1,totlik2
+integer ::noffspring,firsto,lasto,oldparent,mc1,parsex,offspring,p12,p11,neighbour,r12,r11,firstm,lastm,c1,c2,sextemplate
 integer ::ninfo,nprogeny(4),maxoffspring,numoff,inphase,outphase,m1,m2,nheter,nhomoz,checkrec,switch,reading
 integer ::expanded,limit1,ninfol,ninfor,inphasel,inphaser,outphasel,outphaser,lastknown,lastori,famsize,nclust,nclust2,clust
 integer ::lasttophase,stopt,ntested,refoff,phase_option,mate,nprinted,gender,norigins1,norigins2,nemission
 real*8    ::rrate,endpos,startpos,dist,rratel,rrater,ngam(0:2),nh1,nh2,entro1,entro2,nall11,nall12,nall21,nall22
-real*8, allocatable ::gammas(:,:)
+real*8, allocatable ::gammas(:,:),expco(:)
 real*8 ::b11,b12,b21,b22,PTOT,p_error,p_correct
 real*8, allocatable ::par_error(:),npar(:),noff(:),off_error(:),entropy(:),nentropy(:)
 integer, allocatable ::phase1(:),phase2(:),info_offspring(:),haplotypes(:,:),hap2(:,:)
-integer, allocatable ::moutphase(:,:),minphase(:,:),info_marker(:),nrec(:),origins(:),nall(:,:),flanking(:,:,:),phased(:),tab(:,:)
+integer, allocatable ::moutphase(:,:),minphase(:,:),info_marker(:,:),nrec(:),origins(:),nall(:,:),flanking(:,:,:),phased(:),tab(:,:)
 integer, allocatable ::tophase(:)
 logical ::prephased
+integer ::mapiter,niter_map,sexmap
+
 
  call read_data
  print*,'Finished reading data'
@@ -75,8 +78,9 @@ subroutine read_data
 implicit none
 integer, allocatable ::ids(:),genoin(:)
 character*20 ::paramline
+character*1 ::ispar
 
-phase_option=1;reading=0
+phase_option=1;reading=0;autosome=1;niter_map=1;sexmap=0;gerr=1.0d-3
 open(100,file='linkin.txt')
 read(100,*,iostat=io)paramline
 if(io/=0)stop 'Parameter file too short !'
@@ -118,9 +122,21 @@ if(paramline/='#CHECK_PREPHASING')stop 'Error in parameter file, expected :: #CH
 read(100,*,iostat=io)paramline
 if(io/=0)stop 'Parameter file too short !'
 if(paramline=='yes')map_option=1
-read(100,*,iostat=io)paramline
-if(io/=0)continue
-if(paramline=='#COLUMNS')reading=1
+do 
+ read(100,*,iostat=io)paramline
+ if(io/=0)exit
+ if(paramline=='#COLUMNS')reading=1
+ if(paramline=='#SEXCHROM')autosome=0
+ if(paramline=='#SEXMAP')sexmap=1
+ if(paramline=='#ITERATIONS')then
+  read(100,*,iostat=io)niter_map
+  if(io/=0)stop 'Number of iterations expected after #ITERATIONS option!'
+ endif
+ if(paramline=='#GENO_ERROR')then
+  read(100,*,iostat=io)gerr
+  if(io/=0)stop 'Value of genotyping error expected after #GENO_ERROR option!'
+ endif
+enddo
 
 open(50,file=markfile)
 
@@ -135,31 +151,46 @@ print*,'Number of markers ::',nmarq
 rewind(50)
 
 if(nmarq>=10000000)then
- print*,'Maxid ID larger than 10,000,000!'
+ print*,'More than 10,000,000 markers!'
  print*,'The output format must be update.'
  print*,'The program will now stop.'
  stop
 endif
 
-allocate(posi(nmarq))
+allocate(posi(nmarq,2))
 posi=0.0
 
-num=0
+num=0;parend=0;parstart=nmarq;ispar='A'
 do
-read(50,*,iostat=io)k,markfile,position
+if(autosome==1 .and. sexmap==0)read(50,*,iostat=io)k,markfile,position
+if(autosome==0 .and. sexmap==0)read(50,*,iostat=io)k,markfile,position,ispar
+if(autosome==1 .and. sexmap==1)read(50,*,iostat=io)k,markfile,position,position2
+if(autosome==0 .and. sexmap==1)read(50,*,iostat=io)k,markfile,position,position2,ispar
 if(io/=0)exit
 num=num+1
-if(num<=nmarq)posi(num)=position/100.0
+if(num<=nmarq)posi(num,1)=position/100.0
+if(sexmap==0)posi(num,2)=posi(num,1)
+if(sexmap==1)posi(num,2)=position2/100.0
+if(autosome==1 .or. ispar .ne. 'X')then
+ parstart=min(parstart,num)
+ parend=max(parend,num)
+endif
 if(num==1)cycle
-if(posi(num) < posi(num-1))then
+if(posi(num,1) < posi(num-1,1) .or. posi(num,2) < posi(num-1,2))then
   print*,'Problem in the map file: marker positions are not consecutive !!!'
   stop
-else if(posi(num)==posi(num-1))then
+else if(posi(num,1)==posi(num-1,1) .or. posi(num,2)==posi(num-1,2))then
   print*,'Warning: some markers with identical positions ::',num,(num-1)
 endif
 enddo
+print*,parstart,parend
 
-print*,'Length of marker map (in cM or Mb) ::',(posi(nmarq)-posi(1))*100.0
+if(sexmap==0)then
+ print*,'Length of marker map (in cM or Mb) ::',(posi(nmarq,1)-posi(1,1))*100.0
+else
+ print*,'Length of first marker map (in cM or Mb) ::',(posi(nmarq,1)-posi(1,1))*100.0
+ print*,'Length of second marker map (in cM or Mb) ::',(posi(nmarq,2)-posi(1,2))*100.0
+endif
 
 verif=0
 
@@ -171,7 +202,8 @@ nhap=0;maxid=0;nani=0
 open(9,file=pedfile)
 
 do
-read(9,*,iostat=io)ani,pere,mere
+if(autosome==1)read(9,*,iostat=io)ani,pere,mere
+if(autosome==0)read(9,*,iostat=io)ani,pere,mere,sex
 if(io/=0)exit
  maxid=max(maxid,ani)
  maxid=max(maxid,pere)
@@ -209,12 +241,12 @@ case(0) ! one individual per line
  enddo
  rewind(13)
 case(1) ! one individual per column
- read(13,'(a1000000)',iostat=io)genoline1
+ read(13,'(a100000000)',iostat=io)genoline1
  genoline1=adjustl(genoline1)
  k=len(trim(genoline1))
  nani=1
- do i=1,k
-  if(genoline1(i:i)==" ")nani=nani+1
+ do i=2,k
+  if(genoline1(i:i)==" " .and. genoline1((i-1):(i-1))/=" ")nani=nani+1
  enddo
  rewind(13)
  allocate(ids(nani),genoin(nani))
@@ -249,13 +281,15 @@ nhap=2*nani
 
 allocate(hap(nani,2,nmarq),typ(nani,2*nmarq),genotyped(nani))
 allocate(sire(nani),dam(nani),haplotyped(nani),hapin(nmarq),byparent(2*nani,2),prephaseinfo(nani,nmarq))
+allocate(sexes(nani))
 
-sire=0;dam=0;hap=0;byparent=0;prephaseinfo=0
+sire=0;dam=0;hap=0;byparent=0;prephaseinfo=0;sexes=0
 
 ! saved pedigree contains only genotyped animals
 
 do
-read(9,*,iostat=io)ani,pere,mere
+if(autosome==1)read(9,*,iostat=io)ani,pere,mere
+if(autosome==0)read(9,*,iostat=io)ani,pere,mere,sex
 if(io/=0)exit
  if(pere>ani .or. mere>ani)then
   print*,'Error: pedigree is not sorted - parent IDs must be lower than offspring IDs !!!'
@@ -265,6 +299,7 @@ if(io/=0)exit
  if(ani==0)cycle
  sire(ani)=pere
  dam(ani)=mere
+ sexes(ani)=sex
 enddo
 
 typ=0;genotyped=.false.;haplotyped=.false.
@@ -276,6 +311,7 @@ case(0)
  read(13,*,iostat=io)ani,(typ(newid(ani),j),j=1,2*nmarq)
  if(io/=0)exit
  ani=newid(ani)
+ if(autosome==0 .and. sexes(ani)==0)cycle
  do i=1,nmarq
   if(typ(ani,2*i-1)/=0)then
    genotyped(ani)=.true.
@@ -290,6 +326,7 @@ case(1)
   k=k+1
   do i=1,nani
    ani=newid(ids(i))
+   if(autosome==0 .and. sexes(ani)==0)cycle
    if(genoin(i)/=-1)genotyped(ani)=.true.
    select case(genoin(i))
     case(-1)
@@ -340,6 +377,7 @@ do i=1,nani
      hap(i,2,k)=typ(i,2*k-1)
      haplotyped(i)=.true.
      prephaseinfo(i,k)=1
+     if((k < parstart .or. k > parend) .and. sexes(i)==1)hap(i,1,k)=9
    endif
   endif
  enddo
@@ -577,9 +615,19 @@ endif
 open(300,file='origins.txt')
 open(301,file='recombinations')
 open(302,file='nrec.txt')
+if(niter_map > 1)open(103,file='emap.txt')
 
-allocate(phase1(nmarq),phase2(nmarq),info_marker(nmarq),par_error(nmarq),entropy(nmarq),nentropy(nmarq))
+allocate(phase1(nmarq),phase2(nmarq),info_marker(nmarq,3),par_error(nmarq),entropy(nmarq),nentropy(nmarq))
 allocate(phased(nmarq),npar(nmarq),noff(nmarq),off_error(nmarq),tophase(nmarq))
+allocate(emap(nmarq,2),probrecs(nmarq,2),numrecs(nmarq,2))
+
+emap=0.d0
+do k=1,nmarq-1
+ emap(k,1)=probrec(k,k+1,1)
+ emap(k,2)=probrec(k,k+1,2)
+enddo
+do mapiter=1,niter_map
+probrecs=0.d0;numrecs=0.d0;totlik1=0.d0;totlik2=0.d0
 
 num=1;noffspring=0;firsto=1;oldparent=byparent(1,1);maxoffspring=0; info_marker=0;ngam=0.0;par_error=0.d0
 npar=0.d0;noff=0.d0;off_error=0.d0;tophase=1;nprinted=0;nemission=0;norigins1=0;norigins2=0
@@ -622,7 +670,7 @@ do while(byparent(num,1)/=0)
  call listtophase
 ! run first time HMM to remove prephasing errors / done only in normal phasing (not when focus in on detecting map errors)
  step='prephasing'
- if(phase_option==3 .and. prephased .and. map_option==1)call phase_hmm(1,1.0d-3,0) 
+ if(phase_option==3 .and. prephased .and. map_option==1 .and. mapiter==1)call phase_hmm(1,gerr,0) 
 
  ! impute SNPs to increase informativity
    ! store imputed haplotypes in hap2
@@ -646,11 +694,16 @@ do while(byparent(num,1)/=0)
    ntested=ntested+1
    if(ntested>ntemplates)exit
    phase1=0;phase2=0
+   sextemplate=sexes(byparent(refoff,2))
    do k=1,nmarq
      if(prephaseinfo(byparent(refoff,2),k)==0 .or. prephaseinfo(byparent(refoff,2),k)>4)cycle ! use only mendelian markers
      if(parsex==1 .and. prephaseinfo(byparent(refoff,2),k)==2)cycle
      if(parsex==2 .and. prephaseinfo(byparent(refoff,2),k)==3)cycle
      if(typ(oldparent,2*k-1)/=typ(oldparent,2*k) .and. hap(byparent(refoff,2),parsex,k)/=0)then
+       phase1(k)=hap(byparent(refoff,2),parsex,k) ! as offspring
+       phase2(k)=3-hap(byparent(refoff,2),parsex,k)
+     endif
+     if(hap(oldparent,1,k)==9 .and. hap(byparent(refoff,2),parsex,k)/=0)then
        phase1(k)=hap(byparent(refoff,2),parsex,k) ! as offspring
        phase2(k)=3-hap(byparent(refoff,2),parsex,k)
      endif
@@ -672,8 +725,10 @@ do while(byparent(num,1)/=0)
    enddo
   enddo
  
- phase1=0;phase2=0;mc1=0;phased=0
+ phase1=0;phase2=0;mc1=0;phased=0;sextemplate=0
 
+   call phase_byone(7)
+   call phase_byone(7)
    do i=1,4
     call phase_byone(4)
    enddo
@@ -691,13 +746,34 @@ do while(byparent(num,1)/=0)
      enddo
    endif
    step='hmmphasing'
-   if(phase_option==3)call phase_hmm(2,1.0d-3,0) 
-   if(noffspring>2 .or. prephased)call printrec
+   if(phase_option==3)call phase_hmm(2,gerr,0) 
+   if((noffspring>2 .or. prephased) .and. mapiter == niter_map)call printrec
 
  deallocate(nrec)
  deallocate(hap2)
  noffspring=0;firsto=num;oldparent=byparent(num,1);info_marker=0
 enddo
+
+if(phase_option==3 .and. niter_map > 1)then ! estimate and print only if more than one iteration required
+ econv1=0.d0;econv2=0.d0
+ edenom1=dot_product(emap(:,1),emap(:,1))
+ edenom2=dot_product(emap(:,2),emap(:,2))
+ do k=1,nmarq-1
+  econv1=econv1+(emap(k,1)-probrecs(k,1)/numrecs(k,1))**2
+  emap(k,1)=probrecs(k,1)/numrecs(k,1)
+  econv2=econv2+(emap(k,2)-probrecs(k,2)/numrecs(k,2))**2
+  emap(k,2)=probrecs(k,2)/numrecs(k,2)
+  if(mapiter==niter_map)write(103,'(i6,2(1x,f11.6),2(1x,f11.8))')k,posi(k,1),posi(k+1,1),emap(k,1),emap(k,2)
+ enddo
+ if(edenom1 > 0.00)econv1=econv1/edenom1
+ if(edenom2 > 0.00)econv2=econv2/edenom2
+ print'(a76,1x,i4,2(1x,ES11.3),2(1x,f11.6),2(1x,f16.2))', &
+    ' Iteration for map estimation, convergence, map estimates and likelihoods ::', &
+    mapiter,econv1,econv2,sum(emap(:,1)),sum(emap(:,2)),totlik1,totlik2
+endif
+
+enddo ! end iteration on map
+
 
 deallocate(phase1,phase2,phased,info_marker,tophase)
 
@@ -818,12 +894,12 @@ if(coding==2)deallocate(table2r,valr)
 
 end subroutine
 
-function probrec(m1,m2)
+function probrec(m1,m2,mapi)
 implicit none
-integer ::m1,m2
+integer ::m1,m2,mapi
 real*8 ::probrec
 
-probrec=0.5d0*(1.d0-dexp(-2.d0*abs(posi(m1)-posi(m2))))
+probrec=0.5d0*(1.d0-dexp(-2.d0*abs(posi(m1,mapi)-posi(m2,mapi))))
 
 end function
 
@@ -841,8 +917,19 @@ implicit none
 
  tophase=1;info_marker=0;nhomoz=0;nheter=0;lasttophase=0
  do k=1,nmarq
+  if(parsex==1 .and. (k<parstart .or. k>parend))then
+    tophase(k)=0
+    if(typ(oldparent,2*k)/=0)then
+      tophase(k)=2
+      lasttophase=k
+      phased(k)=1;phase1(k)=hap(oldparent,1,k);phase2(k)=hap(oldparent,2,k)
+    endif
+    cycle
+  endif
   do offspring=firsto,lasto
-   if(hap(byparent(offspring,2),parsex,k)/=0)info_marker(k)=info_marker(k)+1
+   if(hap(byparent(offspring,2),parsex,k)/=0)info_marker(k,1)=info_marker(k,1)+1
+   if(hap(byparent(offspring,2),parsex,k)==1)info_marker(k,2)=info_marker(k,2)+1
+   if(hap(byparent(offspring,2),parsex,k)==2)info_marker(k,3)=info_marker(k,3)+1
   enddo
   if(typ(oldparent,2*k-1)==typ(oldparent,2*k))then
     tophase(k)=0
@@ -856,7 +943,7 @@ implicit none
       phased(k)=1;phase1(k)=hap(oldparent,1,k);phase2(k)=hap(oldparent,2,k)
       cycle ! marker already phased by Mendelian rules, keep it
     endif
-    if(info_marker(k)<2)tophase(k)=0 ! remove markers informative in only one offspring -- ideally, even if two informative must be connected to other markers
+    if(info_marker(k,1)<2)tophase(k)=0 ! remove markers informative in only one offspring -- ideally, even if two informative must be connected to other markers
   endif
   if(tophase(k)>0)lasttophase=k
  enddo
@@ -874,6 +961,7 @@ epsi=epsil
 allocate(alpha(2,nmarq),beta(2,nmarq),gamma(2,nmarq),bjk(nmarq,2,2),scaling(nmarq))
 allocate(L11(nmarq),L12(nmarq),L21(nmarq),L22(nmarq))
 allocate(gammas(noffspring,nmarq))
+allocate(expco(noffspring))
 
 if(nhomoz>0 .and. nheter==0)then ! parent is 'inbred'
 
@@ -902,7 +990,7 @@ endif
 
   numoff=0
    do offspring=firsto,lasto
-    call forward(impute)
+    call forward(impute,printout)
     call backward(impute)
     if(impute==0)call add_contribution
    enddo ! offspring
@@ -915,13 +1003,29 @@ endif
   if(conv<1e-16 .or. round==2000)exit
  
  enddo ! new parameters
- if(printout>0)call output_hmm(printout)
+ if(parsex==1 .and. printout==2 .and. (noffspring>2 .or. prephased))then
+  if(parstart < parend)totlik1=totlik1+lik
+ endif
+ if(parsex==2 .and. printout==2 .and. (noffspring>2 .or. prephased))totlik2=totlik2+lik
+
+
+  if(impute == 0)then
+  numoff=0
+   do offspring=firsto,lasto
+    call forward(impute,printout)
+    call backward(impute)
+    if(printout==2 .and. (noffspring>2 .or. prephased))call ejump !### new subroutine with expected jumps prob 
+   enddo ! offspring
+  endif
+
+
+ if(printout>0 .and. mapiter==niter_map)call output_hmm(printout)
 
 ! endif ! inbred parent or not
 
 
 deallocate(alpha,beta,gamma,bjk,scaling,L11,L12,L21,L22)
-deallocate(gammas)
+deallocate(gammas,expco)
 
 end subroutine
 
@@ -961,6 +1065,8 @@ do k=1,nmarq
    bjk(k,1,1)=epsi;bjk(k,1,2)=1.d0-epsi
  else if(phase1(k)==0)then
    bjk(k,1,1)=0.500;bjk(k,1,2)=0.500
+ else if(phase1(k)==9)then ! sire on X (bjk are not used in emission)
+   bjk(k,1,1)=0.500;bjk(k,1,2)=0.500
  endif
 
  if(phase2(k)==1)then
@@ -991,6 +1097,10 @@ do k=1,nmarq
   L21(k)=1.d0-epsi
  else if (hap(oldparent,1,k)==2 .and. hap(oldparent,2,k)==2)then
   L22(k)=1.d0-epsi
+ else if (hap(oldparent,1,k)==9 .and. hap(oldparent,2,k)==1)then ! sires on X 
+  L11(k)=1.d0-epsi
+ else if (hap(oldparent,1,k)==9 .and. hap(oldparent,2,k)==2)then ! sires on X
+  L22(k)=1.d0-epsi
  else if (hap(oldparent,1,k)==0 .and. hap(oldparent,2,k)==0 .and. typ(oldparent,2*k-1)/=0)then ! should be heterozygous
   L12(k)=0.5000-epsi/2.d0;L21(k)=0.5000-epsi/2.d0;L11(k)=epsi/2.d0;L22(k)=epsi/2.d0
  else if (hap(oldparent,1,k)==0 .and. hap(oldparent,2,k)==0 .and. typ(oldparent,2*k-1)==0)then 
@@ -1004,9 +1114,9 @@ end subroutine
 !***************************** FORWARD **********************************************
 !************************************************************************************
 
-subroutine forward(ibd)
+subroutine forward(ibd,printlik)
 implicit none
-integer ::ibd
+integer ::ibd,printlik
 
  alpha=0.0;scaling=0.0;pi=0.5
 
@@ -1089,6 +1199,36 @@ gammas(numoff,:)=gamma(1,:)
 
 end subroutine
 
+
+!************************************************************************************
+!************************  Expected transition  *************************************
+!************************************************************************************
+
+subroutine ejump
+implicit none
+integer ::l0
+real*8 ::pt11,pt12,pt21,pt22
+
+! estimate RECS and NON-RECS
+
+l0=offspring-firsto+1
+expco(l0)=0.000
+do k=1,nmarq-1
+ pjump=jump(k,0) !# recombination prob
+ prob_emission=emission(byparent(offspring,2),2,k+1,parsex)
+ pt12=alpha(1,k)*pjump(1)*prob_emission*beta(2,k+1)
+ pt22=alpha(2,k)*pjump(0)*prob_emission*beta(2,k+1)
+ prob_emission=emission(byparent(offspring,2),1,k+1,parsex)
+ pt21=alpha(2,k)*pjump(1)*prob_emission*beta(1,k+1)
+ pt11=alpha(1,k)*pjump(0)*prob_emission*beta(1,k+1)
+ probrecs(k,parsex)=probrecs(k,parsex)+pt12+pt21
+ numrecs(k,parsex)=numrecs(k,parsex)+pt11+pt12+pt21+pt22
+ expco(l0)=expco(l0)+(pt12+pt21)
+enddo
+
+end subroutine
+
+
 ! ******************************** estimation of bjk ************************************ 
 ! **********  = expected counting in i and allele 1 / expected counting in i ************
 ! ***************************************************************************************
@@ -1097,6 +1237,7 @@ subroutine add_contribution
 implicit none
 
 do k=1,nmarq
+  if(parsex==1 .and. sexes(byparent(offspring,2))==1 .and. (k<parstart .or. k>parend))cycle
   if(prephaseinfo(byparent(offspring,2),k)==5)cycle ! don't use prephased based on Linkage
   if(parsex==1 .and. prephaseinfo(byparent(offspring,2),k)==2)cycle ! if parent sire, don't use prephased based on sire-mendelian
   if(parsex==2 .and. prephaseinfo(byparent(offspring,2),k)==3)cycle ! if parent dam, don't use prephased based on dam-mendelian
@@ -1152,6 +1293,7 @@ subroutine erase_errors
 ! parent genotypes are not changed (because the program estimates the emission probabilities)
 
 do k=1,nmarq
+ if(parsex==1 .and. (k < parstart .or. k > parend))cycle
  if(phase1(k)==0)cycle !!! work only on prephased markers / HMM doesn't phase nicely in non-informative regions => inflated errors
  do l=1,noffspring
    if(hap(byparent(firsto+l-1,2),parsex,k)/=0)then
@@ -1191,6 +1333,7 @@ integer ::printout,ninfor
 
  if(printout==2)write(104,*)oldid(oldparent),noffspring,prephased,round,conv
  do k=1,nmarq
+ if(parsex==1 .and. (k<parstart .or. k>parend))cycle
   if(typ(oldparent,2*k)/=0 .and. famsize>9 .and. phase1(k)/=0)then
     npar(k)=npar(k)+1.d00
     if((typ(oldparent,2*k-1)+typ(oldparent,2*k))==2)par_error(k)=par_error(k)+1.d0-L11(k)
@@ -1259,8 +1402,9 @@ integer ::printout,ninfor
    do k=1,nmarq
      if(k<nmarq)write(200,'(1x,f7.4)',advance='no')gammas(l,k)
      if(k==nmarq)write(200,'(1x,f7.4)',advance='yes')gammas(l,k)
-     if(gammas(l,k)>0.999 .and. (L12(k)>0.95 .or. L21(k)>0.95) .and. hap(byparent(firsto+l-1,2),parsex,k)/=0)then
-      if(lastknown/=0)then
+      if(gammas(l,k)>0.999 .and. (L12(k)>0.95 .or. L21(k)>0.95 .or. (parsex==1 .and. (k<parstart .or. k>parend))) &
+          .and. hap(byparent(firsto+l-1,2),parsex,k)/=0)then
+     if(lastknown/=0)then
        if(lastori==2)then
          write(201,'(4(1x,i7))')oldid(byparent(firsto+l-1,2)),oldid(oldparent),lastknown,k
          nrec(l)=nrec(l)+1
@@ -1269,7 +1413,8 @@ integer ::printout,ninfor
       lastknown=k;lastori=1
       ninfor=ninfor+1
      endif
-     if(gammas(l,k)<0.001 .and. (L12(k)>0.95 .or. L21(k)>0.95) .and. hap(byparent(firsto+l-1,2),parsex,k)/=0)then
+      if(gammas(l,k)<0.001 .and. (L12(k)>0.95 .or. L21(k)>0.95 .or. (parsex==1 .and. (k<parstart .or. k>parend))) &
+        .and. hap(byparent(firsto+l-1,2),parsex,k)/=0)then
       if(lastknown/=0)then
        if(lastori==1)then
          write(201,'(4(1x,i7))')oldid(byparent(firsto+l-1,2)),oldid(oldparent),lastknown,k
@@ -1282,10 +1427,10 @@ integer ::printout,ninfor
    enddo
    k=0
    if(prephased)k=1
-   if(prephased .or. noffspring>2)write(202,'(2(i7,1x),i1,1x,i4,2(1x,i1),3(1x,i7),1x,i4)')&
-      oldid(byparent(firsto+l-1,2)),oldid(oldparent),parsex,noffspring,k,mate,nheter,nhomoz,ninfor,nrec(l)
- enddo
- endif
+   if(prephased .or. noffspring>2)write(202,'(2(i6,1x),i1,1x,i4,2(1x,i1),3(1x,i6),1x,i4,1x,f8.3)')&
+     oldid(byparent(firsto+l-1,2)),oldid(oldparent),parsex,noffspring,k,mate,nheter,nhomoz,ninfor,nrec(l),expco(l)
+enddo
+endif
 
 
 ! keep as phased markers with high emission probability / don't change markers which are non prephased (model works poorly in less informative regions)
@@ -1309,6 +1454,7 @@ integer ::printout,ninfor
  if(L21(k)>0.95)hap(oldparent,2,k)=1
  if(L22(k)>0.95)hap(oldparent,1,k)=2
  if(L22(k)>0.95)hap(oldparent,2,k)=2
+ if(parsex==1 .and. (k<parstart .or. k>parend) .and. hap(oldparent,2,k)/=0)hap(oldparent,1,k)=9
  if((typ(oldparent,2*k-1)+typ(oldparent,2*k))==2 .and. (1.d0-L11(k))>0.95)&
       write(102,'(i7,1x,i7,1x,a10,1x,a7,1x,2i1,5(1x,f7.4),1x,i5)')oldid(oldparent),k,step,'parents',typ(oldparent,2*k-1),&
       typ(oldparent,2*k),(1.d0-L11(k)),L11(k),L12(k),L21(k),L22(k),noffspring
@@ -1346,6 +1492,7 @@ integer ::printout,ninfor
  write(203,'(i7,1x,i1)',advance='no')oldid(oldparent),ori
  nemission=nemission+1
  do k=1,nmarq
+  if(parsex==1 .and. (k<parstart .or. k>parend))bjk(k,1,1)=9.d0
   if(k<nmarq)write(203,'(1x,f8.5)',advance='no')bjk(k,1,1)
   if(k==nmarq)write(203,'(1x,f8.5)',advance='yes')bjk(k,1,1)
  enddo
@@ -1372,6 +1519,7 @@ integer :: ii,jj,allibd1,allibd2
 
  do k=1,nmarq
 ! first check if all 'ibd' haplotypes carry the same allele
+   if(parsex==1 .and. (k<parstart .or. k>parend))cycle
    do offspring=firsto,lasto
     allibd1=1;allibd2=1
     l=offspring-firsto+1
@@ -1410,12 +1558,22 @@ real*8 ::jump(0:1)
 ! first indice 0 or 1 tells if the first haplotype jumped or not
 ! second indice for the second haplotype
 
-if(ibd==0)then
- jump(0)=1.0-probrec(marker,marker+1)
- jump(1)=probrec(marker,marker+1)
-else if(ibd==1)then
- jump(0)=(1.0-probrec(marker,marker+1))**2+probrec(marker,marker+1)**2
- jump(1)=2.0*probrec(marker,marker+1)*(1.0-probrec(marker,marker+1))
+if(mapiter==1)then
+ if(ibd==0)then
+  jump(0)=1.0-probrec(marker,marker+1,parsex)
+  jump(1)=probrec(marker,marker+1,parsex)
+ else if(ibd==1)then
+  jump(0)=(1.0-probrec(marker,marker+1,parsex))**2+probrec(marker,marker+1,parsex)**2
+  jump(1)=2.0*probrec(marker,marker+1,parsex)*(1.0-probrec(marker,marker+1,parsex))
+ endif
+else
+ if(ibd==0)then
+  jump(0)=1.0-emap(marker,parsex)
+  jump(1)=emap(marker,parsex)
+ else if(ibd==1)then
+  jump(0)=(1.0-emap(marker,parsex))**2+emap(marker,parsex)**2
+  jump(1)=2.0*emap(marker,parsex)*(1.0-emap(marker,parsex))
+ endif
 endif
 
 end function
@@ -1424,6 +1582,17 @@ function emission(animal,cluster1,marker,parentalorigin)
 implicit none
 integer ::animal,cluster1,marker,genocompa,parentalorigin
 real*8 ::emission
+
+ if(parsex==1 .and. (marker < parstart .or. marker > parend))then
+  emission=1.d0
+  if(sextemplate==0)then ! for hmm_phasing
+   if(sexes(animal)==1 .and. cluster1==2)emission=0.d0
+   if(sexes(animal)==2 .and. cluster1==1)emission=0.d0
+  else ! in case of 'imputation' HMM on X 
+   if(sexes(animal)/=sextemplate)emission=0.d0
+  endif
+  return
+ endif
 
 ! if not phased based on homozygous or mendelian, non-informative
 ! use only those prephased based on homozygous or mendelian from second parent
@@ -1467,7 +1636,9 @@ allocate(initrec(nmark),postrec(nmark),recounts(nmark))
 initrec=0.00
 
 do k=1,nmark-1
- initrec(k)=probrec(k,k+1)
+ if(gender==0)initrec(k)=0.5*(probrec(k,k+1,1)+probrec(k,k+1,2))
+ if(gender==1)initrec(k)=probrec(k,k+1,1)
+ if(gender==2)initrec(k)=probrec(k,k+1,2)
  if(initrec(k)<0.000001)initrec(k)=0.000001
 enddo
 
@@ -1520,9 +1691,9 @@ do k=1,nmark
 ! if(noff(k)/=0.00)off_error(k)=off_error(k)/noff(k)
  if(nentropy(k)/=0.00)entropy(k)=entropy(k)/nentropy(k)
  composite=(1.d00-postrec(k))*(1.d00-entropy(k))*(1.d00-par_error(k))
- posi1=posi(k)
- if(k<nmarq)posi2=posi(k+1)
- if(k==nmarq)posi2=posi(k)+1.00
+ posi1=posi(k,1)
+ if(k<nmarq)posi2=posi(k+1,1)
+ if(k==nmarq)posi2=posi(k,1)+1.00
  if(gender==0)then
   write(513,'(i7,2(1x,f11.6),1x,f16.13,2(1x,f8.1,1x,f8.5),1x,f8.5)')k,posi1,posi2,postrec(k), &
     npar(k),par_error(k),nentropy(k),entropy(k),composite
@@ -1538,9 +1709,17 @@ if(gender==0)then
  print*,'Gender = 2 for females'
  print*,''
 endif
-print'(a11,i1,a66,i10,1x,f11.1,1x,f10.4)','For gender ',gender, &
+print'(a12,i1,a66,i10,1x,f11.1,1x,f10.4)',' For gender ',gender, &
  ', number of recombinations, gametes and length of the map (in cM) ::',nrec, &
  ngam(gender),100.0*sum(postrec(:))
+
+if(gender==2)then
+ print*,''
+ print*,'The genetic lengths obtained with the counts are approximative.'
+ print*,'They are not corrected for informativeness.'
+ print*,'Better genetic maps can be estimated with the #ITERATIONS option.'
+ print*,''
+endif
 
 deallocate(initrec,postrec,recounts,rectable)
 close(511);close(512);close(513)
@@ -1550,7 +1729,7 @@ end subroutine
 subroutine phase_byone(rules)
 implicit none
 integer ::rules,mininfo,maxdiff,i,info1
-real*8 ::delta,maxdist
+real*8 ::delta,maxdist,distortion,distor1,distor2
 
  limit1=ceiling(0.50*maxval(info_marker)) ! accept also markers with 90% of informative progeny 
  if(limit1 > 50)limit1=50
@@ -1561,7 +1740,11 @@ real*8 ::delta,maxdist
 ! rules 2 : phase only reliable markers based on reliable markerss - 0.999
 ! rules 3 : phase all based on reliable markers - 0.999
 ! rules 4 : phase all based on all markers - 0.999
-
+! rules 5 : phase all based on all markers - 0.99
+! rules 6 : phase all based on all markers - 0.99 (min-informative reduced)
+! rules 7 : rules 6 but markers must be "balanced"
+  
+  distortion=0.00
   select case(rules)
     case(1)
       delta=6.906755;mininfo=2;maxdiff=0;maxdist=1000.d0
@@ -1575,6 +1758,8 @@ real*8 ::delta,maxdist
       delta=4.59511985;mininfo=2;maxdiff=100000;maxdist=1000.d0 ! P1=0.99 et P2=0.01
     case(6)
       delta=4.59511985;mininfo=1;maxdiff=100000;maxdist=1000.d0 ! P1=0.99 et P2=0.01
+    case(7)
+      delta=6.906755;mininfo=2;maxdiff=100000;maxdist=1000.d0;distortion=0.25
   end select
 
 ! indicate markers as phased when mendelian information available
@@ -1592,7 +1777,9 @@ real*8 ::delta,maxdist
 
  if(sum(phased)==0)then
    do k=1,nmarq
-     if(info_marker(k)>=limit1 .and. tophase(k)==1)then
+     if(info_marker(k,2)>0 .or. info_marker(k,3)>0)distor1=1.d0*info_marker(k,2)/(1.d0*info_marker(k,2)+1.d0*info_marker(k,3))
+     distor2=1.d0-distor1
+     if(info_marker(k,1)>=limit1 .and. tophase(k)==1 .and. distor1 >= distortion .and. distor2 >=distortion)then
       phased(k)=1
       phase1(k)=1;phase2(k)=2
       exit
@@ -1603,9 +1790,12 @@ real*8 ::delta,maxdist
 
 do k=1,nmarq
  if(phased(k)==1)cycle
- if(rules<3 .and. info_marker(k)<limit1)cycle
+ if(rules<3 .and. info_marker(k,1)<limit1)cycle
  if(typ(oldparent,2*k-1)==typ(oldparent,2*k))cycle ! homozygote
  if(hap(oldparent,1,k)/=0)cycle ! already phased
+ if(info_marker(k,2)>0 .or. info_marker(k,3)>0)distor1=1.d0*info_marker(k,2)/(1.d0*info_marker(k,2)+1.d0*info_marker(k,3))
+ distor2=1.d0-distor1
+ if(distor1 < distortion .or. distor2 < distortion)cycle
 
   phase1(k)=1;phase2(k)=2 ! start with random values
 
@@ -1621,7 +1811,7 @@ do k=1,nmarq
    m2=0;info1=0
    do l=k+1,nmarq
      if(phased(l)==0)cycle ! should skip homozygotes
-     if(rules<4 .and. info_marker(l)<limit1)cycle
+     if(rules<4 .and. info_marker(l,1)<limit1)cycle
 !     if(hap(byparent(offspring,2),parsex,l)==0)cycle
      if(hap2(numoff,l)==0)cycle
      m2=l
@@ -1634,23 +1824,23 @@ do k=1,nmarq
 !    if(hap(byparent(offspring,2),parsex,k)==1 .and. hap(byparent(offspring,2),parsex,m2)==phase1(m2))then
     if(hap2(numoff,k)==1 .and. hap2(numoff,m2)==phase1(m2))then
        inphase=inphase+1
-       ph1=ph1+log(1.d0-probrec(m1,m2))
-       ph2=ph2+log(probrec(m1,m2))
+       ph1=ph1+log(1.d0-probrec(m1,m2,parsex))
+       ph2=ph2+log(probrec(m1,m2,parsex))
 !    else if(hap(byparent(offspring,2),parsex,k)==1 .and. hap(byparent(offspring,2),parsex,m2)==phase2(m2))then
     else if(hap2(numoff,k)==1 .and. hap2(numoff,m2)==phase2(m2))then
        outphase=outphase+1
-       ph2=ph2+log(1.d0-probrec(m1,m2))
-       ph1=ph1+log(probrec(m1,m2))
+       ph2=ph2+log(1.d0-probrec(m1,m2,parsex))
+       ph1=ph1+log(probrec(m1,m2,parsex))
 !    else if(hap(byparent(offspring,2),parsex,k)==2 .and. hap(byparent(offspring,2),parsex,m2)==phase1(m2))then
     else if(hap2(numoff,k)==2 .and. hap2(numoff,m2)==phase1(m2))then
        outphase=outphase+1
-       ph2=ph2+log(1.d0-probrec(m1,m2))
-       ph1=ph1+log(probrec(m1,m2))
+       ph2=ph2+log(1.d0-probrec(m1,m2,parsex))
+       ph1=ph1+log(probrec(m1,m2,parsex))
 !    else if(hap(byparent(offspring,2),parsex,k)==2 .and. hap(byparent(offspring,2),parsex,m2)==phase2(m2))then
     else if(hap2(numoff,k)==2 .and. hap2(numoff,m2)==phase2(m2))then
        inphase=inphase+1
-       ph1=ph1+log(1.d0-probrec(m1,m2))
-       ph2=ph2+log(probrec(m1,m2))
+       ph1=ph1+log(1.d0-probrec(m1,m2,parsex))
+       ph2=ph2+log(probrec(m1,m2,parsex))
     endif
    endif
 
@@ -1658,7 +1848,7 @@ do k=1,nmarq
    m2=0
    do l=k-1,1,-1
      if(phased(l)==0)cycle
-     if(rules<4 .and. info_marker(l)<limit1)cycle
+     if(rules<4 .and. info_marker(l,1)<limit1)cycle
 !     if(hap(byparent(offspring,2),parsex,l)==0)cycle
      if(hap2(numoff,l)==0)cycle
      m2=l
@@ -1671,27 +1861,30 @@ do k=1,nmarq
 !    if(hap(byparent(offspring,2),parsex,k)==1 .and. hap(byparent(offspring,2),parsex,m2)==phase1(m2))then
     if(hap2(numoff,k)==1 .and. hap2(numoff,m2)==phase1(m2))then
        inphase=inphase+1
-       ph1=ph1+log(1.d0-probrec(m2,m1))
-       ph2=ph2+log(probrec(m2,m1))
+       ph1=ph1+log(1.d0-probrec(m2,m1,parsex))
+       ph2=ph2+log(probrec(m2,m1,parsex))
 !    else if(hap(byparent(offspring,2),parsex,k)==1 .and. hap(byparent(offspring,2),parsex,m2)==phase2(m2))then
     else if(hap2(numoff,k)==1 .and. hap2(numoff,m2)==phase2(m2))then
        outphase=outphase+1
-       ph2=ph2+log(1.d0-probrec(m2,m1))
-       ph1=ph1+log(probrec(m2,m1))
+       ph2=ph2+log(1.d0-probrec(m2,m1,parsex))
+       ph1=ph1+log(probrec(m2,m1,parsex))
 !    else if(hap(byparent(offspring,2),parsex,k)==2 .and. hap(byparent(offspring,2),parsex,m2)==phase1(m2))then
     else if(hap2(numoff,k)==2 .and. hap2(numoff,m2)==phase1(m2))then
        outphase=outphase+1
-       ph2=ph2+log(1.d0-probrec(m2,m1))
-       ph1=ph1+log(probrec(m2,m1))
+       ph2=ph2+log(1.d0-probrec(m2,m1,parsex))
+       ph1=ph1+log(probrec(m2,m1,parsex))
 !    else if(hap(byparent(offspring,2),parsex,k)==2 .and. hap(byparent(offspring,2),parsex,m2)==phase2(m2))then
     else if(hap2(numoff,k)==2 .and. hap2(numoff,m2)==phase2(m2))then
        inphase=inphase+1
-       ph1=ph1+log(1.d0-probrec(m2,m1))
-       ph2=ph2+log(probrec(m2,m1))
+       ph1=ph1+log(1.d0-probrec(m2,m1,parsex))
+       ph2=ph2+log(probrec(m2,m1,parsex))
     endif
    endif
 
   enddo ! offspring
+
+
+!  if(oldid(oldparent)==821)print*,k,inphase,outphase
 
   if((ph1-ph2)>delta .and. ninfo>=mininfo .and. inphase>=mininfo .and. outphase<=maxdiff)then ! P1=0.999 et P2=0.001
       phased(k)=1 ! don't switch phase1
@@ -1706,7 +1899,6 @@ do k=1,nmarq
 enddo ! marker
  
 end subroutine
-
 subroutine printrec
 implicit none
 integer ::ninfor
