@@ -30,7 +30,7 @@ real*8 ::position,position2,ph1,ph2,epsi,gerr
 real*8,allocatable ::posi(:,:)
 logical*1, allocatable ::genotyped(:),haplotyped(:)
 character*80 ::genofile,pedfile,oldfile,markfile,step
-character*1000000 ::genoline1
+character*100000000 ::genoline1
 integer ::ori0,ori1,ori2,mk1,mk2,n_switched,n_erased,n_phased
 real*8, allocatable ::alpha(:,:),scaling(:),bjk(:,:,:),beta(:,:),gamma(:,:),L11(:),L21(:),L12(:),L22(:)
 real*8 ::pjump(0:1),pi,prob_emission
@@ -241,7 +241,7 @@ case(0) ! one individual per line
  enddo
  rewind(13)
 case(1) ! one individual per column
- read(13,'(a100000000)',iostat=io)genoline1
+ read(13,'(a100000000)',iostat=io)genoline1 !### genoline1 must be declared at least with the same length
  genoline1=adjustl(genoline1)
  k=len(trim(genoline1))
  nani=1
