@@ -379,6 +379,12 @@ do i=1,nani
      prephaseinfo(i,k)=1
      if((k < parstart .or. k > parend) .and. sexes(i)==1)hap(i,1,k)=9
    endif
+   if(typ(i,2*k-1)/=typ(i,2*k))then !### set to set heterozygous males on the X-chromosome
+     if((k < parstart .or. k > parend) .and. sexes(i)==1)then
+       typ(i,2*k-1)=0
+       typ(i,2*k)=0
+     endif
+   endif
   endif
  enddo
 enddo
