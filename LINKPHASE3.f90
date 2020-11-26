@@ -311,6 +311,7 @@ case(0)
  read(13,*,iostat=io)ani,(typ(newid(ani),j),j=1,2*nmarq)
  if(io/=0)exit
  ani=newid(ani)
+ if(autosome==0 .and. sexes(ani)==0)typ(ani,:)=0
  if(autosome==0 .and. sexes(ani)==0)cycle
  do i=1,nmarq
   if(typ(ani,2*i-1)/=0)then
@@ -346,8 +347,10 @@ print*,'End of reading genotyped and pedigree files '
 
 num=0
 do i=1,nani
+ if(.not.genotyped(i))cycle
  if(genotyped(i))verif=verif+1
  do j=i+1,nani
+   if(.not.genotyped(j))cycle
    if(sire(j)==i .or. dam(j)==i)then
      num=num+1
      byparent(num,1)=i
@@ -1783,12 +1786,16 @@ real*8 ::delta,maxdist,distortion,distor1,distor2
 
  if(sum(phased)==0)then
    do k=1,nmarq
-     if(info_marker(k,2)>0 .or. info_marker(k,3)>0)distor1=1.d0*info_marker(k,2)/(1.d0*info_marker(k,2)+1.d0*info_marker(k,3))
-     distor2=1.d0-distor1
-     if(info_marker(k,1)>=limit1 .and. tophase(k)==1 .and. distor1 >= distortion .and. distor2 >=distortion)then
-      phased(k)=1
-      phase1(k)=1;phase2(k)=2
-      exit
+     if(info_marker(k,2)>0 .or. info_marker(k,3)>0)then
+        distor1=1.d0*info_marker(k,2)/(1.d0*info_marker(k,2)+1.d0*info_marker(k,3))
+        distor2=1.d0-distor1
+     endif
+     if(info_marker(k,1)>=limit1 .and. tophase(k)==1)then
+       if(distor1 >= distortion .and. distor2 >=distortion)then
+        phased(k)=1
+        phase1(k)=1;phase2(k)=2
+        exit
+       endif
      endif
    enddo
  endif
@@ -1799,9 +1806,11 @@ do k=1,nmarq
  if(rules<3 .and. info_marker(k,1)<limit1)cycle
  if(typ(oldparent,2*k-1)==typ(oldparent,2*k))cycle ! homozygote
  if(hap(oldparent,1,k)/=0)cycle ! already phased
- if(info_marker(k,2)>0 .or. info_marker(k,3)>0)distor1=1.d0*info_marker(k,2)/(1.d0*info_marker(k,2)+1.d0*info_marker(k,3))
- distor2=1.d0-distor1
- if(distor1 < distortion .or. distor2 < distortion)cycle
+ if(info_marker(k,2)>0 .or. info_marker(k,3)>0)then
+   distor1=1.d0*info_marker(k,2)/(1.d0*info_marker(k,2)+1.d0*info_marker(k,3))
+   distor2=1.d0-distor1
+   if(distor1 < distortion .or. distor2 < distortion)cycle
+ endif
 
   phase1(k)=1;phase2(k)=2 ! start with random values
 
