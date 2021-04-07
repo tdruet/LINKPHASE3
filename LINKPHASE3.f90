@@ -30,7 +30,7 @@ real*8 ::position,position2,ph1,ph2,epsi,gerr
 real*8,allocatable ::posi(:,:)
 logical*1, allocatable ::genotyped(:),haplotyped(:)
 character*80 ::genofile,pedfile,oldfile,markfile,step
-character*100000000 ::genoline1
+!character*100000000 ::genoline1
 integer ::ori0,ori1,ori2,mk1,mk2,n_switched,n_erased,n_phased
 real*8, allocatable ::alpha(:,:),scaling(:),bjk(:,:,:),beta(:,:),gamma(:,:),L11(:),L21(:),L12(:),L22(:)
 real*8 ::pjump(0:1),pi,prob_emission
@@ -48,7 +48,7 @@ integer, allocatable ::phase1(:),phase2(:),info_offspring(:),haplotypes(:,:),hap
 integer, allocatable ::moutphase(:,:),minphase(:,:),info_marker(:,:),nrec(:),origins(:),nall(:,:),flanking(:,:,:),phased(:),tab(:,:)
 integer, allocatable ::tophase(:)
 logical ::prephased
-integer ::mapiter,niter_map,sexmap
+integer ::mapiter,niter_map,sexmap,ncol
 
 
  call read_data
@@ -80,7 +80,7 @@ integer, allocatable ::ids(:),genoin(:)
 character*20 ::paramline
 character*1 ::ispar
 
-phase_option=1;reading=0;autosome=1;niter_map=1;sexmap=0;gerr=1.0d-3
+phase_option=1;reading=0;autosome=1;niter_map=1;ncol=0;sexmap=0;gerr=1.0d-3
 open(100,file='linkin.txt')
 read(100,*,iostat=io)paramline
 if(io/=0)stop 'Parameter file too short !'
@@ -125,7 +125,11 @@ if(paramline=='yes')map_option=1
 do 
  read(100,*,iostat=io)paramline
  if(io/=0)exit
- if(paramline=='#COLUMNS')reading=1
+ if(paramline=='#COLUMNS')then
+  reading=1
+  read(100,*,iostat=io)ncol
+  if(io/=0)stop 'Number of genotyped individuals expected after #COLUMNS option!'
+ endif
  if(paramline=='#SEXCHROM')autosome=0
  if(paramline=='#SEXMAP')sexmap=1
  if(paramline=='#ITERATIONS')then
@@ -241,14 +245,15 @@ case(0) ! one individual per line
  enddo
  rewind(13)
 case(1) ! one individual per column
- read(13,'(a100000000)',iostat=io)genoline1 !### genoline1 must be declared at least with the same length
- genoline1=adjustl(genoline1)
- k=len(trim(genoline1))
- nani=1
- do i=2,k
-  if(genoline1(i:i)==" " .and. genoline1((i-1):(i-1))/=" ")nani=nani+1
- enddo
- rewind(13)
+! read(13,'(a100000000)',iostat=io)genoline1 !### genoline1 must be declared at least with the same length
+! genoline1=adjustl(genoline1)
+! k=len(trim(genoline1))
+! nani=1
+! do i=2,k
+!  if(genoline1(i:i)==" " .and. genoline1((i-1):(i-1))/=" ")nani=nani+1
+! enddo
+! rewind(13)
+ nani=ncol
  allocate(ids(nani),genoin(nani))
  read(13,*,iostat=io)(ids(i),i=1,nani)
  do i=1,nani
